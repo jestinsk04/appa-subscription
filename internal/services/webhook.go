@@ -86,9 +86,11 @@ func (s *webhookService) OrderPaid(
 	var policyPayments []dbModels.PolicyPayment
 	err := s.db.WithContext(context.Background()).
 		Select("policies_payments.*").
-		InnerJoins("PaymentInstallment", s.db.Select("ID").Where(&dbModels.PaymentInstallment{
-			ShopifyOrderID: fmt.Sprintf("%d", webhook.ID),
-		})).
+		InnerJoins("PaymentInstallment", s.db.Select("ID").
+			Where(&dbModels.PaymentInstallment{
+				ShopifyOrderID: fmt.Sprintf("%d", webhook.ID),
+				Status:         statusPendingPayment,
+			})).
 		Find(&policyPayments).Error
 	if err != nil {
 		s.logger.Error("getting policy payments by shopify order ID", zap.Error(err))
