@@ -18,8 +18,9 @@ type gqlResponse struct {
 
 // emun shopify kind
 const (
-	orderKind = "Order"
-	// customerKind = "Customer"
+	orderKind          = "Order"
+	CustomerKind       = "Customer"
+	ProductVariantKind = "ProductVariant"
 )
 
 // GetOrderByIDResponse constructs a global ID for Shopify entities
@@ -189,15 +190,12 @@ type CreateOrderInShopifyRequest struct {
 }
 
 type CreateOrderInput struct {
-	AcceptAutomaticDiscounts bool                   `json:"acceptAutomaticDiscounts"`
-	CustomerID               string                 `json:"customerId"`
-	Email                    string                 `json:"email"`
-	Tags                     []string               `json:"tags"`
-	TaxExempt                bool                   `json:"taxExempt"`
-	LineItems                []LineItemsNodeRequest `json:"lineItems"`
-	// BillingAddress           ShippingAddress        `json:"billingAddress"`
-	// CustomAttributes         []Metafield            `json:"customAttributes"`
-	// DiscountCodes            []string               `json:"discountCodes,omitempty"`
+	CustomerID      string                 `json:"customerId"`
+	Email           string                 `json:"email"`
+	Tags            []string               `json:"tags"`
+	LineItems       []LineItemsNodeRequest `json:"lineItems"`
+	Note            string                 `json:"note,omitempty"`
+	FinancialStatus string                 `json:"financialStatus,omitempty"`
 }
 
 type LineItemsNodeRequest struct {

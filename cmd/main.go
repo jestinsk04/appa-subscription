@@ -9,13 +9,16 @@ import (
 	"github.com/gin-gonic/gin"
 	_ "github.com/joho/godotenv/autoload"
 	_ "github.com/lib/pq"
+	"github.com/robfig/cron/v3"
 	"go.uber.org/zap"
 
 	"appa_subscriptions/internal/config"
 	"appa_subscriptions/internal/handlers"
+	"appa_subscriptions/internal/jobs"
 	"appa_subscriptions/internal/routers"
 	"appa_subscriptions/internal/services"
 	"appa_subscriptions/pkg/db"
+	PaymentInstallment "appa_subscriptions/pkg/db/repositories"
 	"appa_subscriptions/pkg/logs"
 	"appa_subscriptions/pkg/shopify"
 )
@@ -84,9 +87,11 @@ func main() {
 	shopifyCliente := shopify.NewRepository(
 		cfg.ShopifyStoreName, cfg.ShopifyAPIVersion, cfg.ShopifyAdminToken, logger,
 	)
+	paymentInstallmentRepo := PaymentInstallment.NewPaymentInstallmentRepository(loc, logger)
 
 	// Initialize services
-	webhookService := services.NewWebhookService(gormDB, loc, shopifyCliente, logger)
+	webhookService := services.NewWebhookService(gormDB, loc, shopifyCliente, paymentInstallmentRepo, logger)
+	orderService := services.NewOrderService(gormDB, shopifyCliente, paymentInstallmentRepo, loc, logger)
 
 	// Initialize handlers
 	webhookHandler := handlers.NewWebhookHandler(webhookService)
@@ -96,6 +101,29 @@ func main() {
 
 	// Set up routes
 	webhookRouter.SetRouter(router, cfg.ShopifyHMACSecret)
+
+	// Jobs
+	jobHandler := jobs.NewJobHandler(orderService, logger)
+
+	// init config cron
+	c := cron.New(
+		cron.WithSeconds(),
+		cron.WithLocation(loc),
+	)
+
+	// Add TIIE job -> RUN | 09:00am | ALL DAYS |
+	_, err = c.AddFunc("0 50 8 * * *", jobHandler.HandleScheduledOrders)
+	if err != nil {
+		logger.Fatal("error adding job HandleScheduledOrders to cron", zap.Error(err))
+	}
+
+	if cfg.Debug != "1" {
+		c.Start()
+		defer c.Stop()
+	}
+
+	// testing run job
+	// jobHandler.HandleScheduledOrders()
 
 	if err := router.Run(":" + cfg.Port); err != nil {
 		log.Fatalf("failed to run server: %v", err)

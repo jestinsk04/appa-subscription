@@ -7,8 +7,8 @@ type PolicyPayment struct {
 	PolicyID             string              `gorm:"column:policy_id" json:"policyID"`
 	PaymentInstallmentID string              `gorm:"column:payment_installment_id" json:"paymentInstallmentID"`
 	CreatedAt            time.Time           `gorm:"column:created_at;autoCreateTime" json:"createdAt"`
-	Policy               *[]Policy           `gorm:"foreignKey:PolicyID;references:ID" json:"policy,omitempty"`
-	PaymentInstallment   *PaymentInstallment `gorm:"foreignKey:PaymentInstallmentID;references:ID" json:"paymentInstallment,omitempty"`
+	Policy               *Policy             `gorm:"foreignKey:PolicyID" json:"policy,omitempty"`
+	PaymentInstallment   *PaymentInstallment `gorm:"foreignKey:PaymentInstallmentID" json:"paymentInstallment,omitempty"`
 }
 
 func (PolicyPayment) TableName() string {

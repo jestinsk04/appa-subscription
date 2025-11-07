@@ -147,7 +147,7 @@ mutation orderCreate($order: OrderCreateOrderInput!, $options: OrderCreateOption
       id
       name
       statusPageUrl
-	  TotalPriceSet {
+	  totalPriceSet {
 		shopMoney {
 			amount
 			currencyCode

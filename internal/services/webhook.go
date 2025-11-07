@@ -3,22 +3,22 @@ package services
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
-	"appa_subscriptions/internal/domain"
+	"appa_subscriptions/internal/domains"
 	"appa_subscriptions/internal/models"
 	"appa_subscriptions/pkg/db"
 	dbModels "appa_subscriptions/pkg/db/models"
+	PaymentInstallment "appa_subscriptions/pkg/db/repositories"
 	"appa_subscriptions/pkg/shopify"
 )
 
 const (
-	statusPendingPolicy                  = "pending_payment"
+	statusPendingPolicy                  = "payment_pending"
 	statusPendingPayment                 = "pending"
 	statusPaidPayment                    = "paid"
 	statusActive                         = "active"
@@ -27,23 +27,32 @@ const (
 )
 
 type webhookService struct {
-	logger            *zap.Logger
-	db                *gorm.DB
-	loc               *time.Location
-	ShopifyRepository shopify.Repository
+	db                     *gorm.DB
+	loc                    *time.Location
+	ShopifyRepository      shopify.Repository
+	PaymentInstallmentRepo PaymentInstallment.Repository
+	logger                 *zap.Logger
 }
 
-func NewWebhookService(db *gorm.DB, loc *time.Location, shopifyRepo shopify.Repository, logger *zap.Logger) domain.WebhookService {
+func NewWebhookService(
+	db *gorm.DB,
+	loc *time.Location,
+	shopifyRepo shopify.Repository,
+	PaymentInstallmentRepo PaymentInstallment.Repository,
+	logger *zap.Logger,
+) domains.WebhookService {
 	return &webhookService{
-		db:                db,
-		loc:               loc,
-		ShopifyRepository: shopifyRepo,
-		logger:            logger,
+		db:                     db,
+		loc:                    loc,
+		ShopifyRepository:      shopifyRepo,
+		PaymentInstallmentRepo: PaymentInstallmentRepo,
+		logger:                 logger,
 	}
 }
 
 // OrderCreated handles the order created webhook from Shopify.
 func (s *webhookService) OrderCreated(webhook models.Webhook) {
+	s.logger.Info("received order created webhook", zap.Int("order_id", webhook.ID))
 	var (
 		ctx           = context.Background()
 		paymentStatus = statusPendingPayment
@@ -64,18 +73,22 @@ func (s *webhookService) OrderCreated(webhook models.Webhook) {
 		return
 	}
 	s.firstOrderProcess(ctx, webhook, paymentStatus, policyStatus)
+
+	s.logger.Info("completed processing order created webhook", zap.Int("order_id", webhook.ID))
 }
 
 // OrderPaid handles the order paid webhook from Shopify.
 func (s *webhookService) OrderPaid(
 	webhook models.Webhook,
 ) {
+	webhook.ID = 6563075358970
 	// 1. Get PolicyPayments by Shopify Order ID
 	var policyPayments []dbModels.PolicyPayment
 	err := s.db.WithContext(context.Background()).
-		Select("policy_payments.*").
-		InnerJoins("PaymentInstallment").
-		Where("payment_installments.shopify_order_id = ?", fmt.Sprintf("%d", webhook.ID)).
+		Select("policies_payments.*").
+		InnerJoins("PaymentInstallment", s.db.Select("ID").Where(&dbModels.PaymentInstallment{
+			ShopifyOrderID: fmt.Sprintf("%d", webhook.ID),
+		})).
 		Find(&policyPayments).Error
 	if err != nil {
 		s.logger.Error("getting policy payments by shopify order ID", zap.Error(err))
@@ -87,41 +100,39 @@ func (s *webhookService) OrderPaid(
 		return
 	}
 
-	var (
-		tx    = s.db.Begin().WithContext(context.Background())
-		errDB error
-	)
-	defer db.DBRollback(tx, &errDB)
+	// var (
+	// 	tx    = s.db.Begin().WithContext(context.Background())
+	// 	errDB error
+	// )
+	// defer db.DBRollback(tx, &errDB)
 
 	// 2. Update PaymentInstallment status to 'paid'
-	errDB = tx.Model(&dbModels.PaymentInstallment{}).
+	err = s.db.WithContext(context.Background()).Model(&dbModels.PaymentInstallment{}).
 		Where("id = ?", policyPayments[0].PaymentInstallmentID).
 		Updates(map[string]any{
-			"status":     "paid",
-			"updated_at": time.Now().In(s.loc),
-			"paid_at":    time.Now().In(s.loc),
+			"status":  statusPaidPayment,
+			"paid_at": time.Now().In(s.loc),
 		}).Error
-	if errDB != nil {
-		s.logger.Error("updating payment installment status to paid", zap.Error(errDB))
+	if err != nil {
+		s.logger.Error("updating payment installment status to paid", zap.Error(err))
 		return
 	}
 
-	// 3. Update Policies status to 'active'
-	policiesIDs := make([]string, 0)
-	for _, pp := range policyPayments {
-		policiesIDs = append(policiesIDs, pp.PolicyID)
-	}
+	// // 3. Update Policies status to 'active'
+	// policiesIDs := make([]string, 0)
+	// for _, pp := range policyPayments {
+	// 	policiesIDs = append(policiesIDs, pp.PolicyID)
+	// }
 
-	errDB = tx.Model(&dbModels.Policy{}).
-		Where("id IN ?", policiesIDs).
-		Updates(map[string]any{
-			"status":     statusActive,
-			"updated_at": time.Now().In(s.loc),
-		}).Error
-	if errDB != nil {
-		s.logger.Error("updating policies status to active", zap.Error(errDB))
-		return
-	}
+	// errDB = tx.Model(&dbModels.Policy{}).
+	// 	Where("id IN ?", policiesIDs).
+	// 	Updates(map[string]any{
+	// 		"status": statusActive,
+	// 	}).Error
+	// if errDB != nil {
+	// 	s.logger.Error("updating policies status to active", zap.Error(errDB))
+	// 	return
+	// }
 }
 
 // firstOrderProcess handles the first order process webhook from Shopify.
@@ -130,6 +141,19 @@ func (s *webhookService) firstOrderProcess(
 	webhook models.Webhook,
 	paymentStatus, policyStatus string,
 ) {
+	var count int64
+	err := s.db.WithContext(ctx).Model(&dbModels.PaymentInstallment{}).
+		Where("shopify_order_id = ?", fmt.Sprintf("%d", webhook.ID)).
+		Count(&count).Error
+	if err != nil {
+		s.logger.Error("checking existing payment installment", zap.Error(err))
+		return
+	}
+	if count > 0 {
+		s.logger.Info("payment installment already exists for this order, skipping", zap.Int("order_id", webhook.ID))
+		return
+	}
+
 	var (
 		errDB    error
 		isManual bool
@@ -158,8 +182,8 @@ func (s *webhookService) firstOrderProcess(
 	}
 
 	// 3. Precreate PaymentInstallment
-	paymentInstallment, err := s.createPaymentInstallment(
-		tx, ctx, webhook.ID, paymentStatus, webhook.Name, webhook.CurrentTotalPriceSet.ShopMoney.Amount,
+	paymentInstallment, err := s.PaymentInstallmentRepo.Create(
+		tx, ctx, fmt.Sprintf("%d", webhook.ID), paymentStatus, webhook.Name, webhook.CurrentTotalPriceSet.ShopMoney.Amount,
 	)
 	if err != nil {
 		errDB = err
@@ -258,8 +282,8 @@ func (s *webhookService) orderRecurring(
 	defer db.DBRollback(tx, &errDB)
 
 	// 3. Precreate PaymentInstallment
-	paymentInstallment, err := s.createPaymentInstallment(
-		tx, ctx, webhook.ID, paymentStatus, webhook.Name, webhook.CurrentTotalPriceSet.ShopMoney.Amount,
+	paymentInstallment, err := s.PaymentInstallmentRepo.Create(
+		tx, ctx, fmt.Sprintf("%d", webhook.ID), paymentStatus, webhook.Name, webhook.CurrentTotalPriceSet.ShopMoney.Amount,
 	)
 	if err != nil {
 		errDB = err
@@ -282,8 +306,7 @@ func (s *webhookService) orderRecurring(
 	errDB = tx.Model(&dbModels.Policy{}).
 		Where("id IN ?", policiesIDs).
 		Updates(map[string]any{
-			"status":     policyStatus,
-			"updated_at": time.Now().In(s.loc),
+			"status": policyStatus,
 		}).Error
 	if errDB != nil {
 		s.logger.Error("updating policies status to active", zap.Error(errDB))
@@ -317,51 +340,6 @@ func (s *webhookService) createOrFindUser(
 	}
 
 	return &user, nil
-}
-
-// createPaymentInstallment creates a payment installment record in the database within the provided transaction.
-func (s *webhookService) createPaymentInstallment(
-	tx *gorm.DB,
-	ctx context.Context,
-	orderID int,
-	status string,
-	orderName, amountStr string,
-) (*dbModels.PaymentInstallment, error) {
-	if tx == nil {
-		s.logger.Error("transaction is nil")
-		return nil, fmt.Errorf("transaction is nil")
-	}
-
-	installmentNumber, err := strconv.Atoi(strings.ReplaceAll(orderName, "#", ""))
-	if err != nil {
-		s.logger.Error(err.Error(), zap.String("Name", strings.ReplaceAll(orderName, "#", "")))
-		return nil, err
-	}
-
-	amount, err := strconv.ParseFloat(amountStr, 64)
-	if err != nil {
-		s.logger.Error(err.Error(), zap.String("Amount", amountStr))
-		return nil, err
-	}
-
-	// Pre-create PaymentInstallment
-	paymentInstallment := dbModels.PaymentInstallment{
-		InstallmentNumber: installmentNumber,
-		DueDate:           time.Now().AddDate(0, 1, 0).In(s.loc),
-		Amount:            amount,
-		Status:            status,
-		ShopifyOrderID:    fmt.Sprintf("%d", orderID),
-		//ShopifyCheckoutURL: "",
-		CreatedAt: time.Now().In(s.loc),
-		UpdatedAt: time.Now().In(s.loc),
-	}
-	err = tx.WithContext(ctx).Create(&paymentInstallment).Error
-	if err != nil {
-		s.logger.Error("creating payment installment", zap.Error(err), zap.Any("req", paymentInstallment))
-		return nil, err
-	}
-
-	return &paymentInstallment, nil
 }
 
 // getVariantsMapByLineItem

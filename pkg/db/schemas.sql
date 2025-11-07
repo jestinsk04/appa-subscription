@@ -256,3 +256,37 @@ after INSERT
 or
 update OF status on payment_installments for EACH row
 execute FUNCTION update_policy_status_from_installment ();
+
+
+DECLARE
+  latest_installment RECORD;
+BEGIN
+  -- Iterate over all latest installments for the given policy
+  FOR latest_installment IN
+    SELECT
+      policies_payments.policy_id,
+      payment_installments.id AS installment_id,
+      payment_installments.installment_number,
+      payment_installments.due_date,
+      payment_installments.status
+    FROM policies_payments
+    JOIN payment_installments ON policies_payments.payment_installment_id = payment_installments.id
+    WHERE payment_installments.id = NEW.id
+    ORDER BY payment_installments.installment_number DESC
+  LOOP
+    -- Update policy status based on installment status
+    IF latest_installment.status = 'paid' THEN
+      UPDATE policies
+      SET status = 'active',
+          next_payment = (latest_installment.due_date + INTERVAL '1 month')::DATE
+      WHERE id = latest_installment.policy_id;
+    ELSIF latest_installment.status = 'pending' OR latest_installment.status = 'overdue' THEN
+      UPDATE policies
+      SET status = 'payment_pending',
+          next_payment = latest_installment.due_date
+      WHERE id = latest_installment.policy_id;
+    END IF;
+  END LOOP;
+
+  RETURN NEW;
+END;

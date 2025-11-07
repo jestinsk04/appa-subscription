@@ -1,7 +1,7 @@
 package handlers
 
 import (
-	"appa_subscriptions/internal/domain"
+	"appa_subscriptions/internal/domains"
 	"appa_subscriptions/internal/models"
 	"net/http"
 
@@ -9,10 +9,10 @@ import (
 )
 
 type WebhookHandler struct {
-	webhookService domain.WebhookService
+	webhookService domains.WebhookService
 }
 
-func NewWebhookHandler(webhookService domain.WebhookService) *WebhookHandler {
+func NewWebhookHandler(webhookService domains.WebhookService) *WebhookHandler {
 	return &WebhookHandler{
 		webhookService: webhookService,
 	}
@@ -27,5 +27,17 @@ func (h *WebhookHandler) HandleWebhookOrderCreated(c *gin.Context) {
 	}
 
 	go h.webhookService.OrderCreated(webhook)
+	c.Status(http.StatusOK)
+}
+
+// HandleWebhookOrderPaid handles the order paid webhook
+func (h *WebhookHandler) HandleWebhookOrderPaid(c *gin.Context) {
+	var webhook models.Webhook
+	if err := c.ShouldBindJSON(&webhook); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	go h.webhookService.OrderPaid(webhook)
 	c.Status(http.StatusOK)
 }
