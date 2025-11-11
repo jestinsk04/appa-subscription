@@ -11,6 +11,7 @@ import (
 
 	"appa_subscriptions/internal/domains"
 	"appa_subscriptions/internal/models"
+	helpers "appa_subscriptions/pkg"
 	"appa_subscriptions/pkg/db"
 	dbModels "appa_subscriptions/pkg/db/models"
 	PaymentInstallment "appa_subscriptions/pkg/db/repositories"
@@ -81,7 +82,6 @@ func (s *webhookService) OrderCreated(webhook models.Webhook) {
 func (s *webhookService) OrderPaid(
 	webhook models.Webhook,
 ) {
-	webhook.ID = 6563075358970
 	// 1. Get PolicyPayments by Shopify Order ID
 	var policyPayments []dbModels.PolicyPayment
 	err := s.db.WithContext(context.Background()).
@@ -102,12 +102,6 @@ func (s *webhookService) OrderPaid(
 		return
 	}
 
-	// var (
-	// 	tx    = s.db.Begin().WithContext(context.Background())
-	// 	errDB error
-	// )
-	// defer db.DBRollback(tx, &errDB)
-
 	// 2. Update PaymentInstallment status to 'paid'
 	err = s.db.WithContext(context.Background()).Model(&dbModels.PaymentInstallment{}).
 		Where("id = ?", policyPayments[0].PaymentInstallmentID).
@@ -119,22 +113,6 @@ func (s *webhookService) OrderPaid(
 		s.logger.Error("updating payment installment status to paid", zap.Error(err))
 		return
 	}
-
-	// // 3. Update Policies status to 'active'
-	// policiesIDs := make([]string, 0)
-	// for _, pp := range policyPayments {
-	// 	policiesIDs = append(policiesIDs, pp.PolicyID)
-	// }
-
-	// errDB = tx.Model(&dbModels.Policy{}).
-	// 	Where("id IN ?", policiesIDs).
-	// 	Updates(map[string]any{
-	// 		"status": statusActive,
-	// 	}).Error
-	// if errDB != nil {
-	// 	s.logger.Error("updating policies status to active", zap.Error(errDB))
-	// 	return
-	// }
 }
 
 // firstOrderProcess handles the first order process webhook from Shopify.
@@ -238,11 +216,12 @@ func (s *webhookService) firstOrderProcess(
 			CreatedAt:            time.Now().In(s.loc),
 		})
 	}
-
-	// 6. Create PolicyPayments
-	errDB = tx.WithContext(ctx).Create(&policyPayments).Error
-	if errDB != nil {
-		s.logger.Error("creating policy payments", zap.Error(errDB))
+	if len(policyPayments) > 0 {
+		// 6. Create PolicyPayments
+		errDB = tx.WithContext(ctx).Create(&policyPayments).Error
+		if errDB != nil {
+			s.logger.Error("creating policy payments", zap.Error(errDB))
+		}
 	}
 }
 
@@ -252,20 +231,17 @@ func (s *webhookService) orderRecurring(
 	webhook models.Webhook,
 	paymentStatus, policyStatus string,
 ) {
-	// 1. Get first order ID from tags
-	tags := strings.Split(webhook.Tags, "-")
-	if len(tags) < 2 {
+	firstOrderID := helpers.FindRecurringAppleFirstOrderID(webhook.Tags)
+	if firstOrderID == nil {
 		s.logger.Error("invalid tags format for recurring order", zap.String("tags", webhook.Tags))
 		return
 	}
 
-	// 2. Get PolicyPayments by first Shopify Order ID
-	firstOrderID := tags[1]
 	var policyPayments []dbModels.PolicyPayment
 	err := s.db.WithContext(context.Background()).
 		Select("policy_payments.*").
 		InnerJoins("PaymentInstallment").
-		Where("payment_installments.shopify_order_id = ?", firstOrderID).
+		Where("payment_installments.shopify_order_id = ?", *firstOrderID).
 		Find(&policyPayments).Error
 	if err != nil {
 		s.logger.Error("getting policy payments by shopify order ID", zap.Error(err))
@@ -273,7 +249,7 @@ func (s *webhookService) orderRecurring(
 	}
 
 	if len(policyPayments) == 0 {
-		s.logger.Warn("no policy payments found for shopify order ID", zap.String("shopify_order_id", firstOrderID))
+		s.logger.Warn("no policy payments found for shopify order ID", zap.String("shopify_order_id", *firstOrderID))
 		return
 	}
 
@@ -446,7 +422,7 @@ func (s *webhookService) createOrFindPet(
 	userID, ageRangeID, sizeID, conditionID, typeID string,
 ) (*dbModels.Pet, error) {
 	dbPet := dbModels.Pet{
-		Name:        pet.Name,
+		Name:        strings.ToLower(pet.Name),
 		Breed:       pet.Breed,
 		Gender:      pet.Gender,
 		CreatedAt:   time.Now().In(s.loc),

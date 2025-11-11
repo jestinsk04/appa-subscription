@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
 )
@@ -49,16 +50,24 @@ func (r *repository) GetDogData(
 		"namespace": customNamespace,
 		"key":       orderDogDataKey,
 	}
-
+	intent := 0
 	var resp GetOrderMetafieldResponse
-	if err := r.gql.Do(ctx, getOrderMetafield, vars, &resp); err != nil {
-		r.Logger.Error("failed to get order metafield", zap.Error(err), zap.Any("vars", vars))
-		return nil, err
+	for intent < 5 {
+		if err := r.gql.Do(ctx, getOrderMetafield, vars, &resp); err != nil {
+			r.Logger.Error("failed to get order metafield", zap.Error(err), zap.Any("vars", vars))
+			return nil, err
+		}
+
+		if resp.Order.Metafield != nil {
+			break
+		}
+		intent++
+		time.Sleep(1 * time.Second)
 	}
 
 	if resp.Order.Metafield == nil {
-		r.Logger.Error("customer dog data metafield not found", zap.Any("vars", vars))
-		return nil, errors.New("customer dog data metafield not found")
+		r.Logger.Error("order dog data metafield not found", zap.Any("vars", vars))
+		return nil, errors.New("order dog data metafield not found")
 	}
 
 	var pets Pets
