@@ -20,6 +20,7 @@ import (
 	"appa_subscriptions/pkg/db"
 	PaymentInstallment "appa_subscriptions/pkg/db/repositories"
 	"appa_subscriptions/pkg/logs"
+	"appa_subscriptions/pkg/mailgun"
 	"appa_subscriptions/pkg/shopify"
 )
 
@@ -89,9 +90,15 @@ func main() {
 	)
 	paymentInstallmentRepo := PaymentInstallment.NewPaymentInstallmentRepository(loc, logger)
 
+	muClient := mailgun.NewClient(cfg.MailgunAPIKey)
+
+	// Initialize resources
+	muRepository := mailgun.NewRepository(muClient, cfg.MailgunDomain, cfg.MailgunSender, logger)
+
 	// Initialize services
 	webhookService := services.NewWebhookService(gormDB, loc, shopifyCliente, paymentInstallmentRepo, logger)
-	orderService := services.NewOrderService(gormDB, shopifyCliente, paymentInstallmentRepo, loc, logger)
+	orderService := services.NewOrderService(gormDB, shopifyCliente, paymentInstallmentRepo, muRepository, loc, logger)
+	services.NewNotificationService(muRepository, logger)
 
 	// Initialize handlers
 	webhookHandler := handlers.NewWebhookHandler(webhookService)
@@ -111,8 +118,14 @@ func main() {
 		cron.WithLocation(loc),
 	)
 
-	// Add TIIE job -> RUN | 09:00am | ALL DAYS |
-	_, err = c.AddFunc("0 50 8 * * *", jobHandler.HandleScheduledOrders)
+	// Add TIIE job -> RUN | 08:30am | ALL DAYS |
+	_, err = c.AddFunc("0 30 8 * * *", jobHandler.HandleScheduledOrders)
+	if err != nil {
+		logger.Fatal("error adding job HandleScheduledOrders to cron", zap.Error(err))
+	}
+
+	// Add TIIE job -> RUN | 09:30am | ALL DAYS |
+	_, err = c.AddFunc("0 30 9 * * *", jobHandler.HandleReminderPendingPolicies)
 	if err != nil {
 		logger.Fatal("error adding job HandleScheduledOrders to cron", zap.Error(err))
 	}
@@ -123,7 +136,7 @@ func main() {
 	}
 
 	// testing run job
-	// jobHandler.HandleScheduledOrders()
+	// jobHandler.HandleReminderPendingPolicies()
 
 	if err := router.Run(":" + cfg.Port); err != nil {
 		log.Fatalf("failed to run server: %v", err)

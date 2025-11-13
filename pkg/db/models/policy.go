@@ -20,6 +20,7 @@ type Policy struct {
 	DocumentsVerified bool      `json:"documentsVerified" gorm:"column:documents_verified;type:boolean;default:false;not null"`
 	IsManual          bool      `json:"isManual" gorm:"column:is_manual;type:boolean;default:true;not null"`
 	User              *User     `json:"user,omitempty" gorm:"foreignKey:UserID;references:ID"`
+	Pet               *Pet      `json:"pet,omitempty" gorm:"foreignKey:PetID;references:ID"`
 }
 
 func (Policy) TableName() string {

@@ -27,6 +27,11 @@ type Config struct {
 
 	// CORS
 	CORSAllowedOrigins []string
+
+	// Mailgun API credentials
+	MailgunDomain string
+	MailgunAPIKey string
+	MailgunSender string
 }
 
 // Load reads configuration from environment variables and returns a Config struct
@@ -58,6 +63,10 @@ func Load() (*Config, error) {
 		ShopifyHMACSecret: os.Getenv("SHOPIFY_HMAC_SECRET"),
 
 		CORSAllowedOrigins: corsOrigins,
+
+		MailgunDomain: os.Getenv("MAILGUN_DOMAIN"),
+		MailgunAPIKey: os.Getenv("MAILGUN_API_KEY"),
+		MailgunSender: os.Getenv("MAILGUN_SENDER"),
 	}
 
 	if err := validate(cfg); err != nil {
@@ -100,6 +109,16 @@ func validate(cfg *Config) error {
 	}
 	if cfg.ShopifyHMACSecret == "" {
 		return fmt.Errorf("ShopifyHMACSecret is not configured")
+	}
+
+	if cfg.MailgunDomain == "" {
+		return fmt.Errorf("MailgunDomain is not configured")
+	}
+	if cfg.MailgunAPIKey == "" {
+		return fmt.Errorf("MailgunAPIKey is not configured")
+	}
+	if cfg.MailgunSender == "" {
+		return fmt.Errorf("MailgunSender is not configured")
 	}
 
 	return nil

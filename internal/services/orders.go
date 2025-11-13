@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -9,17 +10,21 @@ import (
 	"gorm.io/gorm"
 
 	"appa_subscriptions/internal/domains"
+	"appa_subscriptions/internal/models"
+	helpers "appa_subscriptions/pkg"
 	"appa_subscriptions/pkg/db"
 	dbModels "appa_subscriptions/pkg/db/models"
 	PaymentInstallment "appa_subscriptions/pkg/db/repositories"
+	"appa_subscriptions/pkg/mailgun"
 	"appa_subscriptions/pkg/shopify"
 )
 
 type orderService struct {
 	db                     *gorm.DB
-	loc                    *time.Location
 	shopify                shopify.Repository
 	PaymentInstallmentRepo PaymentInstallment.Repository
+	muRepo                 mailgun.Repository
+	loc                    *time.Location
 	logger                 *zap.Logger
 }
 
@@ -27,6 +32,7 @@ func NewOrderService(
 	db *gorm.DB,
 	shopifyRepo shopify.Repository,
 	PaymentInstallmentRepo PaymentInstallment.Repository,
+	mailgunRepo mailgun.Repository,
 	loc *time.Location,
 	logger *zap.Logger,
 ) domains.OrderService {
@@ -34,6 +40,7 @@ func NewOrderService(
 		db:                     db,
 		shopify:                shopifyRepo,
 		PaymentInstallmentRepo: PaymentInstallmentRepo,
+		muRepo:                 mailgunRepo,
 		loc:                    loc,
 		logger:                 logger,
 	}
@@ -185,4 +192,100 @@ func getOrderLineItemsByPolicies(policies []dbModels.Policy) ([]shopify.LineItem
 		policyIDs = append(policyIDs, policy.ID)
 	}
 	return lineItems, policyIDs
+}
+
+func (s *orderService) ReminderPendingPolicies(ctx context.Context) error {
+	s.logger.Info("starting ReminderPendingPolicies process")
+	now := time.Now().In(s.loc)
+
+	var policies []dbModels.PolicyPayment
+	err := s.db.WithContext(ctx).Debug().
+		Select("policies_payments.*").
+		InnerJoins("PaymentInstallment", s.db.Select("ShopifyOrderID").Model(&dbModels.PaymentInstallment{})).
+		InnerJoins("Policy", s.db.Select("ID").Where(&dbModels.Policy{
+			Status:   statusPendingPolicy,
+			IsManual: true,
+		})).
+		Joins("Policy.User", s.db.Select("Email", "Name").Model(&dbModels.User{})).
+		Joins("Policy.Pet", s.db.Select("Name").Model(&dbModels.Pet{})).
+		Find(&policies).Error
+	if err != nil {
+		s.logger.Error("failed to fetch policies by next_delivery_day", zap.Error(err))
+		return err
+	}
+
+	policyPetsMap := make(map[string][]string)
+	for _, policyPayment := range policies {
+		policyPetsMap[policyPayment.PaymentInstallmentID] = append(
+			policyPetsMap[policyPayment.PaymentInstallmentID],
+			policyPayment.Policy.Pet.Name,
+		)
+	}
+
+	result := make(map[string]bool)
+	for _, policyPayment := range policies {
+
+		if _, exist := result[policyPayment.PaymentInstallmentID]; exist {
+			continue
+		}
+
+		var (
+			nextPaymentDay = policyPayment.Policy.NextPayment.In(s.loc)
+			daysPending    = int(now.Sub(nextPaymentDay).Hours() / 24)
+			template       string
+		)
+
+		switch {
+		case daysPending >= 1 && daysPending <= 27:
+			template = "reminder"
+		case daysPending == 31:
+			template = "cancellation"
+			daysPending = 30
+		case daysPending > 31:
+			daysPending = 0
+			template = "reactivation"
+		default:
+			continue
+		}
+
+		result[policyPayment.PaymentInstallmentID] = true
+		notificationJobsQueue <- notificationJob{
+			vars: models.ConfirmationOrderEmailVars{
+				FirtsName: policyPayment.Policy.User.Name,
+				DaysLeft:  30 - daysPending,
+				PetsList:  policyPetsMap[policyPayment.PaymentInstallmentID],
+				PayUrl: fmt.Sprintf(
+					"https://pay.appasalud.com/?orderId=%s",
+					policyPayment.PaymentInstallment.ShopifyOrderID,
+				),
+			},
+			email:    policyPayment.Policy.User.Email,
+			template: template,
+		}
+	}
+
+	s.logger.Info("completed ReminderPendingPolicies process")
+	return nil
+}
+
+// SendEmail sends an email to the customer
+func (o *orderService) SendEmail(
+	ctx context.Context,
+	vars models.ConfirmationOrderEmailVars,
+	email string,
+	template string,
+) error {
+	varsForEmail := helpers.GetVarsForConfirmationOrderEmail(vars)
+
+	emailTemplate := EmailsTemplates[template]
+	emailTemplate.Vars = varsForEmail
+	emailTemplate.To = email
+
+	err := o.muRepo.SendEmail(ctx, emailTemplate)
+	if err != nil {
+		//o.logger.Error(err.Error(), zap.String("to", order.Order.Customer.Email))
+		return err
+	}
+
+	return nil
 }
