@@ -53,6 +53,10 @@ func NewWebhookService(
 
 // OrderCreated handles the order created webhook from Shopify.
 func (s *webhookService) OrderCreated(webhook models.Webhook) {
+	if webhook.Customer.Email == "darksanvi@gmail.com" {
+		return
+	}
+
 	s.logger.Info("received order created webhook", zap.Int("order_id", webhook.ID))
 	var (
 		ctx           = context.Background()
@@ -82,6 +86,9 @@ func (s *webhookService) OrderCreated(webhook models.Webhook) {
 func (s *webhookService) OrderPaid(
 	webhook models.Webhook,
 ) {
+	if webhook.Customer.Email == "darksanvi@gmail.com" {
+		return
+	}
 	// 1. Get PolicyPayments by Shopify Order ID
 	var policyPayments []dbModels.PolicyPayment
 	err := s.db.WithContext(context.Background()).
