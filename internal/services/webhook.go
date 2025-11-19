@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -210,7 +211,7 @@ func (s *webhookService) firstOrderProcess(
 
 		policy, err := s.createPolicy(
 			tx, ctx, isManual, policyStatus, user.ID, dbPet.ID,
-			petAttributesMap["plan"], pet.ProductVariantID,
+			petAttributesMap["plan"], petAttributesMap["plan_limit"], pet.ProductVariantID,
 		)
 		if err != nil {
 			errDB = err
@@ -378,6 +379,7 @@ func (s *webhookService) GetPetAttributesIDsByVariantID(
 	}
 
 	err := s.db.WithContext(ctx).
+		Select("ID").
 		Where(dbModels.PetType{Name: strings.ToLower(typeStr)}).First(&petType).Error
 	if err != nil {
 		s.logger.Error("getting pet type", zap.Error(err))
@@ -385,6 +387,7 @@ func (s *webhookService) GetPetAttributesIDsByVariantID(
 	}
 
 	err = s.db.WithContext(ctx).
+		Select("ID").
 		Where(dbModels.PetAgeRange{Name: strings.ToLower(variant.PetAge)}).First(&petAgeRange).Error
 	if err != nil {
 		s.logger.Error("getting pet age range", zap.Error(err))
@@ -392,6 +395,7 @@ func (s *webhookService) GetPetAttributesIDsByVariantID(
 	}
 
 	err = s.db.WithContext(ctx).
+		Select("ID").
 		Where(dbModels.PetSize{Name: strings.ToLower(variant.PetSize)}).First(&petSize).Error
 	if err != nil {
 		s.logger.Error("getting pet size", zap.Error(err))
@@ -399,6 +403,7 @@ func (s *webhookService) GetPetAttributesIDsByVariantID(
 	}
 
 	err = s.db.WithContext(ctx).
+		Select("ID").
 		Where(dbModels.PetCondition{Name: strings.ToLower(variant.PetCondition)}).First(&petCondition).Error
 	if err != nil {
 		s.logger.Error("getting pet condition", zap.Error(err))
@@ -406,6 +411,7 @@ func (s *webhookService) GetPetAttributesIDsByVariantID(
 	}
 
 	err = s.db.WithContext(ctx).
+		Select("ID", "AnnualLimit").
 		Where(dbModels.Plan{ShopifyID: variant.ProductID}).First(&plan).Error
 	if err != nil {
 		s.logger.Error("getting plan", zap.Error(err))
@@ -416,6 +422,7 @@ func (s *webhookService) GetPetAttributesIDsByVariantID(
 	attributesMap["size"] = petSize.ID
 	attributesMap["condition"] = petCondition.ID
 	attributesMap["plan"] = plan.ID
+	attributesMap["plan_limit"] = fmt.Sprintf("%f", plan.AnnualLimit)
 	attributesMap["type"] = petType.ID
 
 	return attributesMap, nil
@@ -450,13 +457,19 @@ func (s *webhookService) createOrFindPet(
 	return &dbPet, nil
 }
 
-// createPolicy
+// createPolicy creates a new policy for the given user and pet.
 func (s *webhookService) createPolicy(
 	tx *gorm.DB,
 	ctx context.Context,
 	isManual bool,
-	status, userID, petID, planID, variantID string,
+	status, userID, petID, planID, planLimit, variantID string,
 ) (*dbModels.Policy, error) {
+	remainingBalance, err := strconv.ParseFloat(planLimit, 64)
+	if err != nil {
+		s.logger.Error("parsing plan limit", zap.Error(err))
+		return nil, err
+	}
+
 	policy := dbModels.Policy{
 		UserID:           userID,
 		PetID:            petID,
@@ -470,9 +483,9 @@ func (s *webhookService) createPolicy(
 		LimitPeriodEnd:   time.Now().AddDate(1, 0, 0).In(s.loc),
 		CreatedAt:        time.Now().In(s.loc),
 		IsManual:         isManual,
+		RemainingBalance: remainingBalance,
 	}
-	err := tx.WithContext(ctx).Create(&policy).Error
-	if err != nil {
+	if err := tx.WithContext(ctx).Create(&policy).Error; err != nil {
 		s.logger.Error("creating policy", zap.Error(err))
 		return nil, err
 	}
