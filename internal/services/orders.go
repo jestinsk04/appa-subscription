@@ -88,17 +88,13 @@ func (s *orderService) NextPaymentInstallmentCreate(ctx context.Context) error {
 			continue
 		}
 
-		var (
-			tx    = s.db.Begin().WithContext(ctx)
-			errDB error
-		)
-		// defer db.DBRollback(tx, &errDB)
+		tx := s.db.Begin().WithContext(ctx)
 
 		paymentInstallment, err := s.PaymentInstallmentRepo.Create(
 			tx, ctx, order.ID, statusPendingPayment, order.Name, order.TotalPriceSet.ShopMoney.Amount,
 		)
 		if err != nil {
-			errDB = err
+			db.DBRollback(tx, &err)
 			s.logger.Error(err.Error(), zap.Any("order", order))
 			continue
 		}
@@ -107,6 +103,7 @@ func (s *orderService) NextPaymentInstallmentCreate(ctx context.Context) error {
 		policyPayments := s.getPolicyPaymentsByPolicies(policies, paymentInstallment.ID)
 		err = tx.WithContext(ctx).Create(&policyPayments).Error
 		if err != nil {
+			db.DBRollback(tx, &err)
 			s.logger.Error(err.Error())
 			continue
 		}
@@ -119,11 +116,30 @@ func (s *orderService) NextPaymentInstallmentCreate(ctx context.Context) error {
 				"status":       statusPendingPolicy,
 			}).Error
 		if err != nil {
+			db.DBRollback(tx, &err)
 			s.logger.Error(err.Error(), zap.Any("policy_ids", userPolicyIDs))
 			return err
 		}
 
-		db.DBRollback(tx, &errDB)
+		db.DBRollback(tx, nil)
+
+		pets := make([]string, len(policies))
+		for _, policy := range policies {
+			pets = append(pets, policy.Pet.Name)
+		}
+
+		notificationJobsQueue <- notificationJob{
+			vars: models.ConfirmationOrderEmailVars{
+				FirtsName: policies[0].User.Name,
+				PetsList:  pets,
+				PayUrl: fmt.Sprintf(
+					"https://pay.appasalud.com/?orderId=%s",
+					strings.TrimPrefix(order.ID, "gid://shopify/Order/"),
+				),
+			},
+			email:    email,
+			template: "create_order",
+		}
 	}
 
 	return nil
