@@ -158,6 +158,18 @@ type Pet struct {
 	ProductVariantID string `json:"product_variant_id"`
 }
 
+type User struct {
+	FirstName string `json:"firstName"`
+	LastName  string `json:"lastName"`
+	Email     string `json:"email"`
+	DocType   string `json:"docType"`
+	DocNumber string `json:"docNumber"`
+	City      string `json:"city"`
+	State     string `json:"state"`
+	Address   string `json:"address"`
+	Phone     string `json:"phone"`
+}
+
 type GetVariantByIDResponse struct {
 	ProductVariant *Variant `json:"productVariant"`
 }

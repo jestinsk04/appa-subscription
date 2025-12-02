@@ -41,7 +41,6 @@ var (
 			Template: "Cancelación",
 		},
 	}
-	// testUserEmails = []string{"celmira@boneappetit.food", "francisco@boneappetit.food", "cesardejesuspelusa@gmail.com", "rcjfrancisco@gmail.com"}
 )
 
 func NewNotificationService(
@@ -74,7 +73,7 @@ func (h *notificationService) worker(id int, jobs <-chan notificationJob) {
 		if err != nil {
 			h.logger.Error("error sending email", zap.Error(err), zap.Int("worker_id", id), zap.String("to", job.email), zap.String("template", job.template))
 		}
-		h.logger.Info("Worker finished job for order", zap.Int("worker_id", id))
+		h.logger.Info("Worker finished job for order", zap.String("template", job.template))
 	}
 }
 
@@ -92,7 +91,6 @@ func (s *notificationService) sendEmail(
 
 	err := s.muRepo.SendEmail(ctx, emailTemplate)
 	if err != nil {
-		//o.logger.Error(err.Error(), zap.String("to", order.Order.Customer.Email))
 		return err
 	}
 

@@ -87,9 +87,6 @@ func (s *webhookService) OrderCreated(webhook models.Webhook) {
 func (s *webhookService) OrderPaid(
 	webhook models.Webhook,
 ) {
-	if webhook.Customer.Email == "darksanvi@gmail.com" {
-		return
-	}
 	// 1. Get PolicyPayments by Shopify Order ID
 	var policyPayments []dbModels.PolicyPayment
 	err := s.db.WithContext(context.Background()).
@@ -106,13 +103,18 @@ func (s *webhookService) OrderPaid(
 	}
 
 	if len(policyPayments) == 0 {
-		s.logger.Warn("no policy payments found for shopify order ID", zap.String("shopify_order_id", fmt.Sprintf("%d", webhook.ID)))
+		s.OrderCreated(webhook)
 		return
+	}
+
+	policyPaymentsIDs := make([]string, 0)
+	for _, pp := range policyPayments {
+		policyPaymentsIDs = append(policyPaymentsIDs, pp.ID)
 	}
 
 	// 2. Update PaymentInstallment status to 'paid'
 	err = s.db.WithContext(context.Background()).Model(&dbModels.PaymentInstallment{}).
-		Where("id = ?", policyPayments[0].PaymentInstallmentID).
+		Where("id IN ?", policyPaymentsIDs).
 		Updates(map[string]any{
 			"status":  statusPaidPayment,
 			"paid_at": time.Now().In(s.loc),
@@ -160,9 +162,16 @@ func (s *webhookService) firstOrderProcess(
 		return
 	}
 
+	// 2. Get User Data from Shopify Metafields
+	userData, err := s.ShopifyRepository.GetUserData(ctx, fmt.Sprintf("%d", webhook.ID))
+	if err != nil {
+		errDB = err
+		return
+	}
+
 	// 2. Create or get user
 	user, err := s.createOrFindUser(
-		tx, ctx, webhook.Customer,
+		tx, ctx, webhook.Customer, userData,
 	)
 	if err != nil {
 		errDB = err
@@ -307,22 +316,33 @@ func (s *webhookService) orderRecurring(
 
 // createOrFindUser creates a new user or finds an existing one based on the Shopify customer ID.
 func (s *webhookService) createOrFindUser(
-	tx *gorm.DB, ctx context.Context, customer models.Customer,
+	tx *gorm.DB, ctx context.Context, customer models.Customer, userData *shopify.User,
 ) (*dbModels.User, error) {
 	user := dbModels.User{
-		Name:      fmt.Sprintf("%s %s", customer.FirstName, customer.LastName),
-		Email:     customer.Email,
-		Phone:     &customer.DefaultAddress.Phone,
-		City:      &customer.DefaultAddress.City,
-		CreatedAt: time.Now().In(s.loc),
-		UpdatedAt: time.Now().In(s.loc),
-		ShopifyID: fmt.Sprintf("%d", customer.ID),
-		Pets:      nil,
+		Name:           fmt.Sprintf("%s %s", customer.FirstName, customer.LastName),
+		Email:          customer.Email,
+		Phone:          &customer.DefaultAddress.Phone,
+		City:           &customer.DefaultAddress.City,
+		CreatedAt:      time.Now().In(s.loc),
+		UpdatedAt:      time.Now().In(s.loc),
+		ShopifyID:      fmt.Sprintf("%d", customer.ID),
+		Pets:           nil,
+		DocumentType:   userData.DocType,
+		DocumentNumber: userData.DocNumber,
 	}
 	err := tx.WithContext(ctx).Where(dbModels.User{ShopifyID: user.ShopifyID}).FirstOrCreate(&user).Error
 	if err != nil {
 		s.logger.Error("creating user", zap.Error(err))
 		return nil, err
+	}
+
+	if user.DocumentNumber == "" || user.DocumentType == "" && userData.DocNumber != "" && userData.DocType != "" {
+		user.DocumentNumber = userData.DocNumber
+		user.DocumentType = userData.DocType
+		if err := tx.WithContext(ctx).Save(&user).Error; err != nil {
+			s.logger.Error("updating user document number and type", zap.Error(err))
+			return nil, err
+		}
 	}
 
 	return &user, nil
