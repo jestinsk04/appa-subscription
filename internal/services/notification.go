@@ -69,6 +69,9 @@ func (h *notificationService) startWorkerPool(numWorkers int) {
 
 func (h *notificationService) worker(id int, jobs <-chan notificationJob) {
 	for job := range jobs {
+		if job.email == "" {
+			h.logger.Error("Cannot send email: 'to' address is empty", zap.String("email", job.email))
+		}
 		err := h.sendEmail(context.Background(), job.vars, job.email, job.template)
 		if err != nil {
 			h.logger.Error("error sending email", zap.Error(err), zap.Int("worker_id", id), zap.String("to", job.email), zap.String("template", job.template))
