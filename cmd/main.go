@@ -124,8 +124,8 @@ func main() {
 		logger.Fatal("error adding job HandleScheduledOrders to cron", zap.Error(err))
 	}
 
-	// Add TIIE job -> RUN | 09:30am | ALL DAYS |
-	_, err = c.AddFunc("0 30 9 * * *", jobHandler.HandleReminderPendingPolicies)
+	// Add TIIE job -> RUN | 08:00am | ALL DAYS |
+	_, err = c.AddFunc("0 0 8 * * *", jobHandler.HandleReminderPendingPolicies)
 	if err != nil {
 		logger.Fatal("error adding job HandleScheduledOrders to cron", zap.Error(err))
 	}

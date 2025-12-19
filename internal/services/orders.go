@@ -57,7 +57,8 @@ func (s *orderService) NextPaymentInstallmentCreate(ctx context.Context) error {
 	var policies []dbModels.Policy
 	err := s.db.WithContext(ctx).
 		Select("policies.*").
-		InnerJoins("User", s.db.Select("ID", "ShopifyID").Model(&dbModels.User{})).
+		InnerJoins("Pet", s.db.Select("Name").Model(&dbModels.Pet{})).
+		InnerJoins("User", s.db.Select("ID", "ShopifyID", "Email").Model(&dbModels.User{})).
 		Where(
 			"next_payment <= ? AND status = ? AND is_manual = ?",
 			currentDate,
@@ -92,13 +93,17 @@ func (s *orderService) NextPaymentInstallmentCreate(ctx context.Context) error {
 			continue
 		}
 
-		tx := s.db.Begin().WithContext(ctx)
+		var (
+			errDB error
+			tx    = s.db.Begin().WithContext(ctx)
+		)
 
 		paymentInstallment, err := s.PaymentInstallmentRepo.Create(
 			tx, ctx, order.ID, statusPendingPayment, order.Name, order.TotalPriceSet.ShopMoney.Amount,
 		)
 		if err != nil {
-			db.DBRollback(tx, &err)
+			errDB = err
+			db.DBRollback(tx, &errDB)
 			s.logger.Error(err.Error(), zap.Any("order", order))
 			continue
 		}
@@ -107,7 +112,8 @@ func (s *orderService) NextPaymentInstallmentCreate(ctx context.Context) error {
 		policyPayments := s.getPolicyPaymentsByPolicies(policies, paymentInstallment.ID)
 		err = tx.WithContext(ctx).Create(&policyPayments).Error
 		if err != nil {
-			db.DBRollback(tx, &err)
+			errDB = err
+			db.DBRollback(tx, &errDB)
 			s.logger.Error(err.Error())
 			continue
 		}
@@ -120,12 +126,13 @@ func (s *orderService) NextPaymentInstallmentCreate(ctx context.Context) error {
 				"status":       statusPendingPolicy,
 			}).Error
 		if err != nil {
-			db.DBRollback(tx, &err)
+			errDB = err
+			db.DBRollback(tx, &errDB)
 			s.logger.Error(err.Error(), zap.Any("policy_ids", userPolicyIDs))
 			return err
 		}
 
-		db.DBRollback(tx, nil)
+		db.DBRollback(tx, &errDB)
 
 		pets := make([]string, len(policies))
 		for _, policy := range policies {
