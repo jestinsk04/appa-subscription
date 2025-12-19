@@ -28,6 +28,10 @@ type orderService struct {
 	logger                 *zap.Logger
 }
 
+const (
+	statusCanceled = "canceled"
+)
+
 func NewOrderService(
 	db *gorm.DB,
 	shopifyRepo shopify.Repository,
@@ -257,6 +261,10 @@ func (s *orderService) ReminderPendingPolicies(ctx context.Context) error {
 		case daysPending == 31:
 			template = "cancellation"
 			daysPending = 30
+			err := s.UpdatePoliceStatus(ctx, policyPayment.Policy.ID, statusCanceled)
+			if err != nil {
+				s.logger.Error("failed to update policy status to canceled", zap.String("policy_id", policyPayment.Policy.ID))
+			}
 		case daysPending > 31:
 			daysPending = 0
 			template = "reactivation"
@@ -281,6 +289,23 @@ func (s *orderService) ReminderPendingPolicies(ctx context.Context) error {
 	}
 
 	s.logger.Info("completed ReminderPendingPolicies process")
+	return nil
+}
+
+// UpdatePoliceStatus updates the status of a policy
+func (o *orderService) UpdatePoliceStatus(
+	ctx context.Context,
+	policyID string,
+	status string,
+) error {
+	err := o.db.WithContext(ctx).Model(&dbModels.Policy{}).
+		Where("id = ?", policyID).
+		Update("status", status).Error
+	if err != nil {
+		o.logger.Error(err.Error(), zap.String("policy_id", policyID))
+		return err
+	}
+
 	return nil
 }
 
