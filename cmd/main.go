@@ -76,7 +76,17 @@ func main() {
 	}
 
 	router := gin.Default()
-	router.Use(cors.Default())
+	router.Use(gin.Recovery())
+
+	if cfg.Debug == "1" {
+		router.Use(cors.Default())
+	} else {
+		router.Use(cors.New(cors.Config{
+			AllowOrigins: cfg.CORSAllowedOrigins,
+			AllowMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+			AllowHeaders: []string{"Content-Type", "Authorization"},
+		}))
+	}
 
 	router.GET("/healthz", func(c *gin.Context) {
 		c.JSON(200, gin.H{
@@ -99,14 +109,18 @@ func main() {
 	webhookService := services.NewWebhookService(gormDB, loc, shopifyCliente, paymentInstallmentRepo, logger)
 	orderService := services.NewOrderService(gormDB, shopifyCliente, paymentInstallmentRepo, muRepository, loc, logger)
 	services.NewNotificationService(muRepository, logger)
+	adminService := services.NewAdminService(gormDB, logger)
 
 	// Initialize handlers
 	webhookHandler := handlers.NewWebhookHandler(webhookService)
+	adminHandler := handlers.NewAdminHandler(adminService)
 
 	// Initialize routes
 	webhookRouter := routers.NewWebhookRoutes(webhookHandler)
+	adminRouter := routers.NewAdminRoutes(adminHandler)
 
 	// Set up routes
+	adminRouter.SetRouter(router)
 	webhookRouter.SetRouter(router, cfg.ShopifyHMACSecret)
 
 	// Jobs
@@ -125,10 +139,10 @@ func main() {
 	}
 
 	// Add TIIE job -> RUN | 08:00am | ALL DAYS |
-	_, err = c.AddFunc("0 0 8 * * *", jobHandler.HandleReminderPendingPolicies)
-	if err != nil {
-		logger.Fatal("error adding job HandleScheduledOrders to cron", zap.Error(err))
-	}
+	// _, err = c.AddFunc("0 0 8 * * *", jobHandler.HandleReminderPendingPolicies)
+	// if err != nil {
+	// 	logger.Fatal("error adding job HandleScheduledOrders to cron", zap.Error(err))
+	// }
 
 	if cfg.Debug != "1" {
 		c.Start()

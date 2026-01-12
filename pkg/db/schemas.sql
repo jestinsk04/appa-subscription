@@ -118,19 +118,19 @@ CREATE INDEX IF not exists idx_plans_pet_type_id on public.plans using btree (pe
 
 INSERT INTO public.plans (id, name, monthly_price, annual_limit, shopify_id, pet_type_id) VALUES
 (gen_random_uuid(), LOWER('Plan 5000 feline + Bienestar'), 50.00, 5000.00, '8969215312122', (SELECT id FROM public.pets_types WHERE name = 'feline' LIMIT 1)),
-    (gen_random_uuid(), LOWER('Plan 5000 feline'), 90.00, 10000.00, '8969215213818', (SELECT id FROM public.pets_types WHERE name = 'feline' LIMIT 1)),
-    (gen_random_uuid(), LOWER('Plan 5000 canine + Bienestar'), 80.00, 10000.00, '8969215115514', (SELECT id FROM public.pets_types WHERE name = 'canine' LIMIT 1)),
-    (gen_random_uuid(), LOWER('Plan 5000 canine'), 150.00, 10000.00, '8969215017210', (SELECT id FROM public.pets_types WHERE name = 'canine' LIMIT 1)),
+    (gen_random_uuid(), LOWER('Plan 5000 feline'), 90.00, 5000.00, '8969215213818', (SELECT id FROM public.pets_types WHERE name = 'feline' LIMIT 1)),
+    (gen_random_uuid(), LOWER('Plan 5000 canine + Bienestar'), 80.00, 5000.00, '8969215115514', (SELECT id FROM public.pets_types WHERE name = 'canine' LIMIT 1)),
+    (gen_random_uuid(), LOWER('Plan 5000 canine'), 150.00, 5000.00, '8969215017210', (SELECT id FROM public.pets_types WHERE name = 'canine' LIMIT 1)),
 
-  (gen_random_uuid(), LOWER('Plan 500 feline + Bienestar'), 50.00, 5000.00, '8969214951674', (SELECT id FROM public.pets_types WHERE name = 'feline' LIMIT 1)),
-    (gen_random_uuid(), LOWER('Plan 500 feline'), 90.00, 10000.00, '8969214820602', (SELECT id FROM public.pets_types WHERE name = 'feline' LIMIT 1)),
-    (gen_random_uuid(), LOWER('Plan 500 canine + Bienestar'), 80.00, 10000.00, '8969214722298', (SELECT id FROM public.pets_types WHERE name = 'canine' LIMIT 1)),
-    (gen_random_uuid(), LOWER('Plan 500 canine'), 150.00, 10000.00, '8969214623994', (SELECT id FROM public.pets_types WHERE name = 'canine' LIMIT 1)),
+  (gen_random_uuid(), LOWER('Plan 500 feline + Bienestar'), 50.00, 500.00, '8969214951674', (SELECT id FROM public.pets_types WHERE name = 'feline' LIMIT 1)),
+    (gen_random_uuid(), LOWER('Plan 500 feline'), 90.00, 500.00, '8969214820602', (SELECT id FROM public.pets_types WHERE name = 'feline' LIMIT 1)),
+    (gen_random_uuid(), LOWER('Plan 500 canine + Bienestar'), 80.00, 500.00, '8969214722298', (SELECT id FROM public.pets_types WHERE name = 'canine' LIMIT 1)),
+    (gen_random_uuid(), LOWER('Plan 500 canine'), 150.00, 500.00, '8969214623994', (SELECT id FROM public.pets_types WHERE name = 'canine' LIMIT 1)),
 
-    (gen_random_uuid(), LOWER('Plan 1500 feline + Bienestar'), 50.00, 5000.00, '8969214492922', (SELECT id FROM public.pets_types WHERE name = 'feline' LIMIT 1)),
-    (gen_random_uuid(), LOWER('Plan 1500 feline'), 90.00, 10000.00, '8969214394618', (SELECT id FROM public.pets_types WHERE name = 'feline' LIMIT 1)),
-        (gen_random_uuid(), LOWER('Plan 1500 canine + Bienestar'), 120.00, 20000.00, '8969214296314', (SELECT id FROM public.pets_types WHERE name = 'canine' LIMIT 1)),
-        (gen_random_uuid(), LOWER('Plan 1500 canine'), 220.00, 20000.00, '8969214132474', (SELECT id FROM public.pets_types WHERE name = 'canine' LIMIT 1));
+    (gen_random_uuid(), LOWER('Plan 1500 feline + Bienestar'), 50.00, 1500.00, '8969214492922', (SELECT id FROM public.pets_types WHERE name = 'feline' LIMIT 1)),
+    (gen_random_uuid(), LOWER('Plan 1500 feline'), 90.00, 1500.00, '8969214394618', (SELECT id FROM public.pets_types WHERE name = 'feline' LIMIT 1)),
+        (gen_random_uuid(), LOWER('Plan 1500 canine + Bienestar'), 120.00, 1500.00, '8969214296314', (SELECT id FROM public.pets_types WHERE name = 'canine' LIMIT 1)),
+        (gen_random_uuid(), LOWER('Plan 1500 canine'), 220.00, 1500.00, '8969214132474', (SELECT id FROM public.pets_types WHERE name = 'canine' LIMIT 1));
 
 create table public.users (
   id uuid not null,
