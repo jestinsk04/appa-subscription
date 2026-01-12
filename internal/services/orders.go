@@ -229,7 +229,7 @@ func (s *orderService) ReminderPendingPolicies(ctx context.Context) error {
 	err := s.db.WithContext(ctx).Debug().
 		Select("policies_payments.*").
 		InnerJoins("PaymentInstallment", s.db.Select("ShopifyOrderID").Model(&dbModels.PaymentInstallment{})).
-		InnerJoins("Policy", s.db.Select("ID").Where(&dbModels.Policy{
+		InnerJoins("Policy", s.db.Select("ID", "NextPayment").Where(&dbModels.Policy{
 			Status:   statusPendingPolicy,
 			IsManual: true,
 		})).
@@ -258,32 +258,30 @@ func (s *orderService) ReminderPendingPolicies(ctx context.Context) error {
 
 		var (
 			nextPaymentDay = policyPayment.Policy.NextPayment.In(s.loc)
-			daysPending    = int(now.Sub(nextPaymentDay).Hours() / 24)
+			availableDays  = int(nextPaymentDay.Sub(now).Hours() / 24)
 			template       string
 		)
 
-		switch {
-		case daysPending >= 1 && daysPending <= 27:
+		s.logger.Info("", zap.Any("days", availableDays), zap.Any("template", template), zap.Any("nextPaymentDay", policyPayment.Policy.NextPayment))
+		if availableDays >= 0 && availableDays <= 27 {
 			template = "reminder"
-		case daysPending == 31:
+		} else if availableDays == 0 {
 			template = "cancellation"
-			daysPending = 30
+		} else {
+			availableDays = 30
+			template = "reactivation"
+
 			err := s.UpdatePoliceStatus(ctx, policyPayment.Policy.ID, statusCanceled)
 			if err != nil {
 				s.logger.Error("failed to update policy status to canceled", zap.String("policy_id", policyPayment.Policy.ID))
 			}
-		case daysPending > 31:
-			daysPending = 0
-			template = "reactivation"
-		default:
-			continue
 		}
 
 		result[policyPayment.PaymentInstallmentID] = true
 		notificationJobsQueue <- notificationJob{
 			vars: models.ConfirmationOrderEmailVars{
 				FirtsName: policyPayment.Policy.User.Name,
-				DaysLeft:  30 - daysPending,
+				DaysLeft:  30 - availableDays,
 				PetsList:  policyPetsMap[policyPayment.PaymentInstallmentID],
 				PayUrl: fmt.Sprintf(
 					"https://pay.appasalud.com/?orderId=%s",

@@ -26,15 +26,15 @@ var (
 	EmailsTemplates = map[string]mailgun.SendEmailRequest{
 		"create_order": {
 			Subject:  "💙 Mantén tu cobertura Appa activa",
-			Template: "Cuota creada",
+			Template: "cuota creada",
 		},
 		"reminder": {
 			Subject:  "🐾 Tu cobertura Appa sigue pendiente de pago",
-			Template: "Recordatorio dia 1 - 7 - 14 -27",
+			Template: "recordatorio dia 1 - 7 - 14 -27",
 		},
 		"cancellation": {
 			Subject:  "🚫 Tu póliza ha sido cancelada (puedes reactivarla)",
-			Template: "Cancelación",
+			Template: "cancelación de la poliza dia 30",
 		},
 		"reactivation": {
 			Subject:  "💙 Vuelve a estar protegido con Appa (preexistencias aplican)",

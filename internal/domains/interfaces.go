@@ -14,3 +14,7 @@ type OrderService interface {
 	NextPaymentInstallmentCreate(ctx context.Context) error
 	ReminderPendingPolicies(ctx context.Context) error
 }
+
+type AdminService interface {
+	CheckEmailExists(email string) (bool, error)
+}
